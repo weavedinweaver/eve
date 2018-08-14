@@ -397,9 +397,13 @@ def _pagination_links(resource, req, documents_count, document_id=None):
     resource_title = config.DOMAIN[resource]['resource_title']
     if parse_url(request.path).__len__() == 2:
         if resource_title is 'branch':
-            all_links = custom_endpoint_all_hateos()
-            _links = all_links
-        else:
+            _links = custom_endpoint_all_hateos()
+            _links.update({
+                'parent': home_link(),
+                'self': {'title': resource_title,
+                         'href': resource_link()}
+            })
+            else:
             _links = {'parent': home_link(),
                       'self': {'title': resource_title,
                                'href': resource_link()}}
