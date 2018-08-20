@@ -241,20 +241,8 @@ def _best_mime():
     .. versionchanged:: 0.3
        Support for optional renderers via XML and JSON configuration keywords.
     """
-    supported = []
-    renders = {}
-    for mime in _MIME_TYPES:
-        # only mime types that have not been disabled via configuration
-        if app.config.get(mime['tag'], True):
-            for mime_type in mime['mime']:
-                supported.append(mime_type)
-                renders[mime_type] = mime['renderer']
-
-    if len(supported) == 0:
-        abort(500, description=debug_error_message(
-            'Configuration error: no supported mime types')
-        )
-
+    supported = ['application/json']
+    renders = {'application/json' : 'render_json'}
     best_match = request.accept_mimetypes.best_match(supported) or \
         supported[0]
     return best_match, renders[best_match]
