@@ -6,23 +6,32 @@
 
     Utility functions for API methods implementations.
 
-    :copyright: (c) 2016 by Nicola Iarocci.
+    :copyright: (c) 2017 by Nicola Iarocci.
     :license: BSD, see LICENSE for more details.
 """
-import time
-from datetime import datetime
-
 import base64
 import simplejson as json
+import time
+
+from bson.dbref import DBRef
 from bson.errors import InvalidId
 from copy import copy
-from flask import current_app as app, request, abort, g, Response
+from datetime import datetime
+from eve.utils import auto_fields
+from eve.utils import config
+from eve.utils import debug_error_message
+from eve.utils import document_etag
+from eve.utils import parse_request
+from eve.utils import ParsedRequest
+from eve.versioning import get_data_version_relation_document
+from eve.versioning import resolve_document_version
+from flask import Response
+from flask import abort
+from flask import current_app as app
+from flask import g
+from flask import request
 from functools import wraps
-
-from eve.utils import parse_request, document_etag, config, \
-    debug_error_message, auto_fields
-from eve.versioning import resolve_document_version, \
-    get_data_version_relation_document
+from werkzeug.datastructures import MultiDict, CombinedMultiDict
 
 
 def get_document(resource, concurrency_check, **lookup):
@@ -59,11 +68,15 @@ def get_document(resource, concurrency_check, **lookup):
 
     document = app.data.find_one(resource, req, **lookup)
     if document:
-        if not req.if_match and config.IF_MATCH and concurrency_check:
+        e_if_m = config.ENFORCE_IF_MATCH
+        if_m = config.IF_MATCH
+        if not req.if_match and e_if_m and if_m and concurrency_check:
             # we don't allow editing unless the client provides an etag
-            # for the document
-            abort(403, description='An etag must be provided to edit a '
-                  'document')
+            # for the document or explicitly decides to allow editing by either
+            # disabling the ``concurrency_check`` or ``IF_MATCH`` or
+            # ``ENFORCE_IF_MATCH`` fields.
+            abort(428, description='To edit a document '
+                  'its etag must be provided using the If-Match header')
 
         # ensure the retrieved document has LAST_UPDATED and DATE_CREATED,
         # eventually with same default values as in GET.
@@ -126,6 +139,10 @@ def payload():
     then returns the request payload as a dict. If request Content-Type is
     unsupported, aborts with a 400 (Bad Request).
 
+    .. versionchanged:: 0.7
+       Allow 'multipart/form-data' form fields to be JSON encoded, once the
+       MULTIPART_FORM_FIELDS_AS_JSON setting was been set.
+
     .. versionchanged:: 0.3
        Allow 'multipart/form-data' content type.
 
@@ -148,7 +165,7 @@ def payload():
     if content_type == 'application/json':
         return request.get_json()
     elif content_type == 'application/x-www-form-urlencoded':
-        return request.form.to_dict() if len(request.form) else \
+        return multidict_to_dict(request.form) if len(request.form) else \
             abort(400, description='No form-urlencoded data supplied')
     elif content_type == 'multipart/form-data':
         # as multipart is also used for file uploads, we let an empty
@@ -158,14 +175,40 @@ def payload():
             # merge form fields and request files, so we get a single payload
             # to be validated against the resource schema.
 
-            # list() is needed because Python3 items() returns a dict_view, not
-            # a list as in Python2.
-            return dict(list(request.form.to_dict().items()) +
-                        list(request.files.to_dict().items()))
+            formItems = MultiDict(request.form)
+
+            if config.MULTIPART_FORM_FIELDS_AS_JSON:
+                for key, lst in formItems.lists():
+                    new_lst = []
+                    for value in lst:
+                        try:
+                            new_lst.append(json.loads(value))
+                        except ValueError:
+                            new_lst.append(json.loads('"{0}"'.format(value)))
+                    formItems.setlist(key, new_lst)
+
+            payload = CombinedMultiDict([formItems, request.files])
+            return multidict_to_dict(payload)
+
         else:
             abort(400, description='No multipart/form-data supplied')
     else:
         abort(400, description='Unknown or no Content-Type header supplied')
+
+
+def multidict_to_dict(multidict):
+    """ Convert a MultiDict containing form data into a regular dict. If the
+    config setting AUTO_COLLAPSE_MULTI_KEYS is True, multiple values with the
+    same key get entered as a list. If it is False, the first entry is picked.
+    """
+    if config.AUTO_COLLAPSE_MULTI_KEYS:
+        d = dict(multidict.lists())
+        for key, value in d.items():
+            if len(value) == 1:
+                d[key] = value[0]
+        return d
+    else:
+        return multidict.to_dict()
 
 
 class RateLimit(object):
@@ -301,6 +344,9 @@ def serialize(document, resource=None, schema=None, fields=None):
     """ Recursively handles field values that require data-aware serialization.
     Relies on the app.data.serializers dictionary.
 
+    .. versionchanged:: 0.7
+       Add support for normalizing anyof-like rules inside lists. See #876.
+
     .. versionchanged:: 0.6
        Add support for normalizing dotted fields.
 
@@ -342,6 +388,10 @@ def serialize(document, resource=None, schema=None, fields=None):
                         for opttype in field_schema.get(x_of_type, []):
                             schema = {field: {'type': opttype}}
                             serialize(document, schema=schema)
+                if config.AUTO_CREATE_LISTS and field_type == 'list':
+                    # Convert single values to lists
+                    if not isinstance(document[field], list):
+                        document[field] = [document[field]]
                 if 'schema' in field_schema:
                     field_schema = field_schema['schema']
                     if 'dict' in (field_type, field_schema.get('type')):
@@ -370,6 +420,20 @@ def serialize(document, resource=None, schema=None, fields=None):
                                               schema=sublist_schema['schema'])
                                 elif item_type in app.data.serializers:
                                     sublist[i] = serialize_value(item_type, v)
+                    elif field_schema.get('type') is None:
+                        # a list of items determined by *of rules
+                        for x_of in ['allof', 'anyof', 'oneof', 'noneof']:
+                            for optschema in field_schema.get(x_of, []):
+                                schema = {field: {
+                                    'type': field_type,
+                                    'schema': optschema}}
+                                serialize(document, schema=schema)
+                            x_of_type = '{0}_type'.format(x_of)
+                            for opttype in field_schema.get(x_of_type, []):
+                                schema = {field: {
+                                    'type': field_type,
+                                    'schema': {'type': opttype}}}
+                                serialize(document, schema=schema)
                     else:
                         # a list of one type, arbitrary length
                         field_type = field_schema.get('type')
@@ -422,7 +486,7 @@ def normalize_dotted_fields(document):
     """ Normalizes eventual dotted fields so validation can be performed
     seamlessly. For example this document:
 
-        {"location.city": "a nested cisty"}
+        {"location.city": "a nested city"}
 
     would be normalized to:
 
@@ -602,15 +666,15 @@ def resolve_embedded_fields(resource, req):
         if field_def:
             if field_def.get('type') == 'list':
                 field_def = field_def['schema']
-            if 'data_relation' in field_def and \
-                    field_def['data_relation'].get('embeddable'):
+            # if 'data_relation' in field_def and \
+            #         field_def['data_relation'].get('embeddable'):
                 # or could raise 400 here
-                enabled_embedded_fields.append(field)
+            enabled_embedded_fields.append(field)
 
     return enabled_embedded_fields
 
 
-def embedded_document(reference, data_relation, field_name):
+def embedded_document(reference, data_relation, field_name, child_embed):
     """ Returns a document to be embedded by reference using data_relation
     taking into account document versions
 
@@ -642,10 +706,17 @@ def embedded_document(reference, data_relation, field_name):
         build_response_document(embedded_doc, data_relation['resource'],
                                 [], latest_embedded_doc)
     else:
-        subresource = data_relation['resource']
+        # if reference is DBRef take the referenced collection as subresource
+        subresource = reference.collection if isinstance(reference, DBRef) \
+            else data_relation['resource']
         id_field = config.DOMAIN[subresource]['id_field']
-        embedded_doc = app.data.find_one(subresource, None,
-                                         **{id_field: reference})
+        # build a fake request to carry our embedded fields list
+        req = ParsedRequest()
+        req.embedded = json.dumps({ key: 1 for key in child_embed })
+        embedded_doc = app.data.find_one(subresource, req,
+                                         **{id_field: reference.id
+                                            if isinstance(reference, DBRef)
+                                            else reference})
         if embedded_doc:
             resolve_media_files(embedded_doc, subresource)
 
@@ -696,18 +767,18 @@ def resolve_embedded_documents(document, resource, embedded_fields):
     :param resource: the resource name.
     :param embedded_fields: the list of fields we are allowed to embed.
 
-    .. versionchagend:: 0.5
+    .. versionchanged:: 0.5
        Support for embedding documents located in subdocuments.
        Allocated two functions embedded_document and subdocuments.
 
-    .. versionchagend:: 0.4
+    .. versionchanged:: 0.4
         Moved parsing of embedded fields to _resolve_embedded_fields.
         Support for document versioning.
 
-    .. versionchagend:: 0.2
+    .. versionchanged:: 0.2
         Support for 'embedded_fields'.
 
-    .. versonchanged:: 0.1.1
+    .. versionchanged:: 0.1.1
        'collection' key has been renamed to 'resource' (data_relation).
 
     .. versionadded:: 0.1.0
@@ -715,17 +786,19 @@ def resolve_embedded_documents(document, resource, embedded_fields):
     # NOTE(Gonéri): We resolve the embedded documents at the end.
     for field in sorted(embedded_fields, key=lambda a: a.count('.')):
         data_relation = field_definition(resource, field)['data_relation']
-        getter = lambda ref: embedded_document(ref, data_relation, field)  # noqa
+        getter = lambda ref, child_embed: embedded_document(ref, data_relation, field, child_embed)  # noqa
         fields_chain = field.split('.')
         last_field = fields_chain[-1]
         for subdocument in subdocuments(fields_chain[:-1], resource, document):
             if last_field not in subdocument:
                 continue
+
+            relevant_child_fields = [f.split('.')[-1] for f in embedded_fields if f.startswith(field + '.')]
+
             if isinstance(subdocument[last_field], list):
-                subdocument[last_field] = list(map(getter,
-                                                   subdocument[last_field]))
+                subdocument[last_field] = [getter(f, relevant_child_fields) for f in subdocument[last_field]]
             else:
-                subdocument[last_field] = getter(subdocument[last_field])
+                subdocument[last_field] = getter(subdocument[last_field],relevant_child_fields)
 
 
 def resolve_media_files(document, resource):
@@ -737,43 +810,55 @@ def resolve_media_files(document, resource):
     .. versionadded:: 0.4
     """
     for field in resource_media_fields(document, resource):
-        file_id = document[field]
-        _file = app.media.get(file_id, resource)
-
-        if _file:
-            # otherwise we have a valid file and should send extended response
-            # start with the basic file object
-            if config.RETURN_MEDIA_AS_BASE64_STRING:
-                ret_file = base64.encodestring(_file.read())
-            elif config.RETURN_MEDIA_AS_URL:
-                prefix = config.MEDIA_BASE_URL if config.MEDIA_BASE_URL \
-                    is not None else app.api_prefix
-                ret_file = '%s/%s/%s' % (prefix, config.MEDIA_ENDPOINT,
-                                         file_id)
-            else:
-                ret_file = None
-
-            if config.EXTENDED_MEDIA_INFO:
-                document[field] = {
-                    'file': ret_file,
-                }
-
-                # check if we should return any special fields
-                for attribute in config.EXTENDED_MEDIA_INFO:
-                    if hasattr(_file, attribute):
-                        # add extended field if found in the file object
-                        document[field].update({
-                            attribute: getattr(_file, attribute)
-                        })
-                    else:
-                        # tried to select an invalid attribute
-                        abort(500, description=debug_error_message(
-                            'Invalid extended media attribute requested'
-                        ))
-            else:
-                document[field] = ret_file
+        if isinstance(document[field], list):
+            resolved_list = []
+            for file_id in document[field]:
+                resolved_list.append(resolve_one_media(file_id, resource))
+            document[field] = resolved_list
         else:
-            document[field] = None
+            document[field] = resolve_one_media(document[field], resource)
+
+
+def resolve_one_media(file_id, resource):
+    """ Get response for one media file """
+    _file = app.media.get(file_id, resource)
+
+    if _file:
+        # otherwise we have a valid file and should send extended response
+        # start with the basic file object
+        if config.RETURN_MEDIA_AS_BASE64_STRING:
+            ret_file = base64.encodestring(_file.read())
+        elif config.RETURN_MEDIA_AS_URL:
+            prefix = config.MEDIA_BASE_URL if config.MEDIA_BASE_URL \
+                is not None else app.api_prefix
+            ret_file = '%s/%s/%s' % (prefix, config.MEDIA_ENDPOINT,
+                                     file_id)
+        else:
+            ret_file = None
+
+        if config.EXTENDED_MEDIA_INFO:
+            ret = {
+                'file': ret_file,
+            }
+
+            # check if we should return any special fields
+            for attribute in config.EXTENDED_MEDIA_INFO:
+                if hasattr(_file, attribute):
+                    # add extended field if found in the file object
+                    ret.update({
+                        attribute: getattr(_file, attribute)
+                    })
+                else:
+                    # tried to select an invalid attribute
+                    abort(500, description=debug_error_message(
+                        'Invalid extended media attribute requested'
+                    ))
+
+            return ret
+        else:
+            return ret_file
+    else:
+        return None
 
 
 def marshal_write_response(document, resource):
@@ -820,21 +905,33 @@ def store_media_files(document, resource, original=None):
     .. versionadded:: 0.3
     """
     # TODO We're storing media files in advance, before the corresponding
-    # document is also stored. In the rare occurance that the subsequent
+    # document is also stored. In the rare occurrence that the subsequent
     # document update fails we should probably attempt a cleanup on the storage
-    # sytem. Easier said than done though.
+    # system. Easier said than done though.
     for field in resource_media_fields(document, resource):
         if original and field in original:
             # since file replacement is not supported by the media storage
-            # system, we first need to delete the file being replaced.
-            app.media.delete(original[field], resource)
+            # system, we first need to delete the files being replaced.
+            if isinstance(original[field], list):
+                for file_id in original[field]:
+                    app.media.delete(file_id, resource)
+            else:
+                app.media.delete(original[field], resource)
 
         if document[field]:
-            # store file and update document with file's unique id/filename
+            # store files and update document with file's unique id/filename
             # also pass in mimetype for use when retrieving the file
-            document[field] = app.media.put(
-                document[field], filename=document[field].filename,
-                content_type=document[field].mimetype, resource=resource)
+            if isinstance(document[field], list):
+                id_lst = []
+                for stor_obj in document[field]:
+                    id_lst.append(app.media.put(
+                        stor_obj, filename=stor_obj.filename,
+                        content_type=stor_obj.mimetype, resource=resource))
+                document[field] = id_lst
+            else:
+                document[field] = app.media.put(
+                    document[field], filename=document[field].filename,
+                    content_type=document[field].mimetype, resource=resource)
 
 
 def resource_media_fields(document, resource):
@@ -866,7 +963,7 @@ def resolve_sub_resource_path(document, resource):
 
 
 def resolve_user_restricted_access(document, resource):
-    """ Adds user restricted access medadata to the document if applicable.
+    """ Adds user restricted access metadata to the document if applicable.
 
     :param document: the document being posted or replaced
     :param resource: the resource to which the document belongs
@@ -977,7 +1074,7 @@ def document_link(resource, document_id, version=None):
 
 def resource_link():
     """ Returns the current resource path relative to the API entry point.
-    Mostly going to be used by hatoeas functions when building
+    Mostly going to be used by hateoas functions when building
     document/resource links. The resource URL stored in the config settings
     might contain regexes and custom variable names, all of which are not
     needed in the response payload.
@@ -1022,6 +1119,11 @@ def oplog_push(resource, document, op, id=None):
     :param op: operation performed. Can be 'POST', 'PUT', 'PATCH', 'DELETE'.
     :param id: unique id of the document.
 
+    .. versionchanged:: 0.7
+       Add user information to the audit. Closes #846.
+       Raise on_oplog_push event.
+       Add support for 'extra' custom field.
+
     .. versionchanged:: 0.5.4
        Use a copy of original document in order to avoid altering its state.
        See #590.
@@ -1055,13 +1157,12 @@ def oplog_push(resource, document, op, id=None):
             last_update = datetime.utcnow().replace(microsecond=0)
         entry[config.LAST_UPDATED] = entry[config.DATE_CREATED] = last_update
         if config.OPLOG_AUDIT:
-
-            # TODO this needs further investigation. See:
-            # http://esd.io/blog/flask-apps-heroku-real-ip-spoofing.html;
-            # https://stackoverflow.com/questions/22868900/how-do-i-safely-get-the-users-real-ip-address-in-flask-using-mod-wsgi
             entry['ip'] = request.remote_addr
 
-            if op in ('PATCH', 'PUT', 'DELETE'):
+            auth = resource_def['authentication']
+            entry['u'] = auth.get_user_or_token() if auth else 'n/a'
+
+            if op in config.OPLOG_CHANGE_METHODS:
                 # these fields are already contained in 'entry'.
                 del(update[config.LAST_UPDATED])
                 # legacy documents (v0.4 or less) could be missing the etag
@@ -1077,4 +1178,7 @@ def oplog_push(resource, document, op, id=None):
         entries.append(entry)
 
     if entries:
+        # notify callbacks
+        getattr(app, "on_oplog_push")(resource, entries)
+        # oplog push
         app.data.insert(config.OPLOG_NAME, entries)
