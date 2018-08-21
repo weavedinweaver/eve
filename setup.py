@@ -13,7 +13,7 @@ install_requires = [
     'markupsafe>=0.23,<1.0',
     'jinja2>=2.7.2,<3.0',
     'itsdangerous>=0.22,<1.0',
-    'flask>=0.10.1,<0.11',
+    'flask>=0.10.1,
 ]
 
 try:
