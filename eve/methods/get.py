@@ -404,9 +404,9 @@ def _pagination_links(resource, req, documents_count, document_id=None):
                          'href': resource_link()}
             })
             else:
-            _links = {'parent': home_link(),
-                      'self': {'title': resource_title,
-                               'href': resource_link()}}
+                _links = {'parent': home_link(),
+                          'self': {'title': resource_title,
+                                   'href': resource_link()}}
     else:
         _links = {'parent': home_link(),
                   'self': {'title': resource_title,
