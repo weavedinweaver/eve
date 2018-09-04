@@ -18,9 +18,6 @@ from eve.auth import requires_auth
 from eve.utils import parse_request, home_link, querydef, config
 from eve.versioning import synthesize_versioned_document, versioned_id_field, \
     get_old_document, diff_document
-from weaver.core.model.schema import parse_url
-from eve.utils import custom_endpoint_all_hateos
-from weaver.core.model.schema.custom_response import get_custom_response
 @ratelimit()
 @requires_auth('resource')
 @pre_event
@@ -138,7 +135,7 @@ def get(resource, **lookup):
     if hasattr(cursor, 'extra'):
         getattr(cursor, 'extra')(response)
     if config.DOMAIN[resource]['custom_response']:
-        response = get_custom_response(resource, response)
+        getattr(app, "make_custom_response")(resource, response)
     return response, last_modified, etag, status, headers
 
 
@@ -395,22 +392,11 @@ def _pagination_links(resource, req, documents_count, document_id=None):
     # construct the default links
     q = querydef(req.max_results, req.where, req.sort, version, req.page)
     resource_title = config.DOMAIN[resource]['resource_title']
-    if parse_url(request.path).__len__() == 2:
-        if resource_title is 'branch':
-            _links = custom_endpoint_all_hateos()
-            _links.update({
-                'parent': home_link(),
-                'self': {'title': resource_title,
-                         'href': resource_link()}
-            })
-        else:
-            _links = {'parent': home_link(),
-                      'self': {'title': resource_title,
-                               'href': resource_link()}}
-    else:
-        _links = {'parent': home_link(),
-                  'self': {'title': resource_title,
-                           'href': resource_link()}}
+    _links = {}
+    getattr(app, "custom_endpoint_all_hateos")(resource, config, _links)
+    _links = {'parent': home_link(),
+              'self': {'title': resource_title,
+                       'href': resource_link()}}
 
     # change links if document ID is given
     if document_id:

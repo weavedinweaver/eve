@@ -425,35 +425,5 @@ def auto_fields(resource):
 
     return fields
 
-def custom_endpoint_all_hateos():
-    links = {}
-    for resource in config.DOMAIN.keys():
-        internal = config.DOMAIN[resource]['internal_resource']
-        if not resource.endswith(config.VERSIONS):
-            if not bool(internal):
-                url = config.URLS[resource]
-                source = url.split('/')[0]
-                request_url = parse_url(request.path)
-                try:
-                    v = request_url[1]
-                    if isinstance(v, basestring):
-                        if bool(re.compile(
-                                "[a-f0-9]{8}-?[a-f0-9]{4}-?[a-f0-9]{4}-?[a-f0-9]{4}-?[a-f0-9]{12}").match(v)):
-                            if source == 'store':
-                                v = get_branch(uuid=v).store.uuid
-                            elif source == 'owner':
-                                v = get_branch(uuid=v).store.owner.id
-                            url = url[:url.index('<')] + str(v) + url[url.index('>') + 1:]
-
-                except:
-                    pass
-                links.update({resource : {'href': '%s' % url,
-                              'title': '%s' %
-                                       config.DOMAIN[resource]['resource_title']}})
-    return links
-
-def custom_response(resource_name, response):
-    response = get_custom_response(resource_name, response)
-    return response
 # Base string type that is compatible with both Python 2.x and 3.x.
 str_type = str if sys.version_info[0] == 3 else basestring
