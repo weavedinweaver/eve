@@ -135,7 +135,10 @@ def get(resource, **lookup):
     if hasattr(cursor, 'extra'):
         getattr(cursor, 'extra')(response)
     if config.DOMAIN[resource]['custom_response']:
+        # Making the response into a mutable object.
+        response = [response]
         getattr(app, "make_custom_response")(resource, response)
+        response = response[0]
     return response, last_modified, etag, status, headers
 
 
@@ -393,7 +396,13 @@ def _pagination_links(resource, req, documents_count, document_id=None):
     q = querydef(req.max_results, req.where, req.sort, version, req.page)
     resource_title = config.DOMAIN[resource]['resource_title']
     _links = {}
+    # Making the _links mutable so that the _links can be changed through
+    # the hook.
+    _links = [_links]
     getattr(app, "custom_endpoint_all_hateos")(resource, config, _links)
+    # Making the _links back to the orginal one
+    _links = _links[0]
+
     _links = {'parent': home_link(),
               'self': {'title': resource_title,
                        'href': resource_link()}}
