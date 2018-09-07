@@ -22,7 +22,7 @@ from eve.utils import config
 from eve.utils import debug_error_message
 from eve.utils import document_etag
 from eve.utils import parse_request
-from eve.utils import ParsedRequest
+from eve.utils import ParsedRequest, check_uuid
 from eve.versioning import get_data_version_relation_document
 from eve.versioning import resolve_document_version
 from flask import Response
@@ -954,6 +954,10 @@ def resolve_sub_resource_path(document, resource):
     schema = resource_def['schema']
     fields = []
     for field, value in request.view_args.items():
+        if check_uuid(value):
+            value = [field, value]
+            getattr(app, "custom_change_uuid_to_id")(value)
+            field, value = value
         if field in schema and field != resource_def['id_field']:
             fields.append(field)
             document[field] = value

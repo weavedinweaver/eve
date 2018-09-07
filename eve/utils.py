@@ -425,5 +425,11 @@ def auto_fields(resource):
 
     return fields
 
+def check_uuid(uuid):
+    if bool(re.compile(
+            "[a-f0-9]{8}-?[a-f0-9]{4}-?[a-f0-9]{4}-?[a-f0-9]{4}-?[a-f0-9]{12}").match(uuid)):
+        return True
+    return False
+
 # Base string type that is compatible with both Python 2.x and 3.x.
 str_type = str if sys.version_info[0] == 3 else basestring
