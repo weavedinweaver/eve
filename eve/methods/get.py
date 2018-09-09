@@ -403,9 +403,9 @@ def _pagination_links(resource, req, documents_count, document_id=None):
     # Making the _links back to the orginal one
     _links = _links[0]
 
-    _links = {'parent': home_link(),
+    _links.update({'parent': home_link(),
               'self': {'title': resource_title,
-                       'href': resource_link()}}
+                       'href': resource_link()}})
 
     # change links if document ID is given
     if document_id:
