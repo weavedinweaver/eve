@@ -11,13 +11,14 @@
     :license: BSD, see LICENSE for more details.
 """
 import math
-from flask import current_app as app, abort, request
+from flask import current_app as app, abort, request, g
 from .common import ratelimit, epoch, pre_event, resolve_embedded_fields, \
     build_response_document, resource_link, document_link, last_updated
 from eve.auth import requires_auth
 from eve.utils import parse_request, home_link, querydef, config
 from eve.versioning import synthesize_versioned_document, versioned_id_field, \
     get_old_document, diff_document
+
 @ratelimit()
 @requires_auth('resource')
 @pre_event
@@ -95,7 +96,7 @@ def get(resource, **lookup):
 
     # If-Modified-Since disabled on collections (#334)
     req.if_modified_since = None
-
+    g.config_setting = (config, resource, req)
     cursor = app.data.find(resource, req, lookup, config.DOMAIN)
     # If soft delete is enabled, data.find will not include items marked
     # deleted unless req.show_deleted is True
