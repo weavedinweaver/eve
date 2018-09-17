@@ -235,3 +235,6 @@ MONGO_QUERY_BLACKLIST = ['$where', '$regex']
 # Explicitly set default write_concern to 'safe' (do regular
 # aknowledged writes). This is also the current PyMongo/Mongo default setting.
 MONGO_WRITE_CONCERN = {'w': 1}
+
+# For changing the url structure according to the needs
+CUSTOM_URL_LOGIC = False
