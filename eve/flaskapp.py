@@ -603,6 +603,8 @@ class Eve(Flask, Events):
         settings.setdefault('custom_response', False)
         # For changing the url structure according to the needs
         settings.setdefault('custom_url_logic', self.config['CUSTOM_URL_LOGIC'])
+        # For getting the data of embedded fields from the single base query itself, and not from firing seperate query
+        settings.setdefault('embedded_fetching_single_query', self.config['EMBEDDED_FETCHING_SINGLE_QUERY'])
         # empty schemas are allowed for read-only access to resources
         schema = settings.setdefault('schema', {})
         self.set_schema_defaults(schema, settings['id_field'])

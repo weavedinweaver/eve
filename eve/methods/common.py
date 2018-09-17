@@ -587,9 +587,9 @@ def build_response_document(
             # documents. Return before resolving them.
             return
 
-    # resolve embedded documents
-    resolve_embedded_documents(document, resource, embedded_fields)
-
+        # resolve embedded documents(one by one) if embedded_fetching_single_query is false
+        if not resource_def['embedded_fetching_single_query']:
+            resolve_embedded_documents(document, resource, embedded_fields)
 
 def field_definition(resource, chained_fields):
     """ Resolves query string to resource with dot notation like

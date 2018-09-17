@@ -238,3 +238,5 @@ MONGO_WRITE_CONCERN = {'w': 1}
 
 # For changing the url structure according to the needs
 CUSTOM_URL_LOGIC = False
+# For getting the data of embedded fields from the single base query itself, and not from firing seperate query
+EMBEDDED_FETCHING_SINGLE_QUERY = False
