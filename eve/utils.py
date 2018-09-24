@@ -22,9 +22,6 @@ from flask import current_app as app
 from datetime import datetime, timedelta
 from bson.json_util import dumps
 from eve import RFC1123_DATE_FORMAT
-from weaver.core.model.schema import parse_url
-from weaver.core.model.organization.queries import get_branch
-from weaver.core.model.schema.custom_response import get_custom_response
 
 class Config(object):
     """ Helper class used through the code to access configuration settings.

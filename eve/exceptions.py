@@ -21,3 +21,7 @@ class ConfigException(Exception):
 class SchemaException(ConfigException):
     """ Raised when errors are found in a field schema definition """
     pass
+
+class ResponseMappingError(Exception):
+    ''' Raised when the custom response mapping is not defined but requests for a custom response'''
+    pass
