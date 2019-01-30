@@ -588,7 +588,7 @@ def build_response_document(
             return
 
     # resolve embedded documents
-    resolve_embedded_documents(document, resource, embedded_fields)
+    # resolve_embedded_documents(document, resource, embedded_fields)
 
 
 def field_definition(resource, chained_fields):
