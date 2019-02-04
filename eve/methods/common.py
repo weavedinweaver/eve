@@ -588,7 +588,8 @@ def build_response_document(
             return
 
     # resolve embedded documents
-    # resolve_embedded_documents(document, resource, embedded_fields)
+    if not resource_def['single_query_embedding']:
+        resolve_embedded_documents(document, resource, embedded_fields)
 
 
 def field_definition(resource, chained_fields):
