@@ -577,6 +577,7 @@ class Eve(Flask, Events):
         settings.setdefault('bulk_enabled', self.config['BULK_ENABLED'])
         settings.setdefault('internal_resource',
                             self.config['INTERNAL_RESOURCE'])
+        settings.setdefault('single_query_embedding', self.config['EMBEDDED_FETCHING_SINGLE_QUERY'])
         settings.setdefault('etag_ignore_fields', None)
         # TODO make sure that this we really need the test below
         if settings['item_lookup']:
