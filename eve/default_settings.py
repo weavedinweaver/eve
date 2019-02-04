@@ -194,6 +194,8 @@ MEDIA_BASE_URL = None
 
 SCHEMA_ENDPOINT = None
 
+EMBEDDED_FETCHING_SINGLE_QUERY = False
+
 # list of extra fields to be included with every POST response. This list
 # should not include the 'standard' fields (ID_FIELD, LAST_UPDATED,
 # DATE_CREATED, and ETAG). Only relevant when bandwidth saving mode is on.
