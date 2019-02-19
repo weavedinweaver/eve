@@ -955,10 +955,11 @@ def resolve_sub_resource_path(document, resource):
     schema = resource_def['schema']
     fields = []
     for field, value in request.view_args.items():
-        if check_uuid(value):
-            value = [field, value]
-            getattr(app, "custom_change_uuid_to_id")(value)
-            field, value = value
+        if resource_def['custom_url_logic']:
+            if check_uuid(value):
+                value = [field, value]
+                getattr(app, "custom_change_uuid_to_id")(value)
+                field, value = value
         if field in schema and field != resource_def['id_field']:
             fields.append(field)
             document[field] = value
