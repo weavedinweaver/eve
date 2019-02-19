@@ -172,7 +172,7 @@ def put_internal(resource, payload=None, concurrency_check=False,
                 document[resource_def['id_field']] = object_id
 
             resolve_user_restricted_access(document, resource)
-            resolve_default_values(document, resource_def['defaults'])
+            # resolve_default_values(document, resource_def['defaults'])
             store_media_files(document, resource, original)
             resolve_document_version(document, resource, 'PUT', original)
 
