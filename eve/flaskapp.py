@@ -602,6 +602,8 @@ class Eve(Flask, Events):
         settings.setdefault('custom_params', False)
         # Adding default value for the response change
         settings.setdefault('custom_response', False)
+        # For custom url logic <prefix>/<entity>/<pk>/<item>
+        settings.setdefault('custom_url_logic', False)        
         # empty schemas are allowed for read-only access to resources
         schema = settings.setdefault('schema', {})
         self.set_schema_defaults(schema, settings['id_field'])
