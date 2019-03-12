@@ -12,7 +12,7 @@ install_requires = [
     'werkzeug>=0.9.4,<0.11.4',
     'markupsafe>=0.23,<1.0',
     'jinja2>=2.7.2,<3.0',
-    'itsdangerous>=0.22,<1.0',
+    'itsdangerous',
     'flask>=0.10.1',
 ]
 
